@@ -1,0 +1,22 @@
+{
+  "sessionAuthHost": "mizuhosecurities-jp-api.symphony.com",
+  "sessionAuthPort": 8444,
+  "keyAuthHost": "mizuhosecurities-jp-api.symphony.com",
+  "keyAuthPort": 8444,
+  "podHost": "mizuhosecurities-jp.symphony.com",
+  "podPort": 443,
+  "agentHost": "mizuhosecurities-jp.symphony.com",
+  "agentPort": 443,
+  "botCertPath": "Include/",
+  "botCertName": "attach-sym-bot-equity-jp-mizuho-sc-com-cert",
+  "botCertPassword": "!P@ssw0rd1",
+  "botEmailAddress": "pur_in_pur_in_sympoc_bot2@mizuho-sc.com",
+  "appCertPath": null,
+  "appCertName": null,
+  "appCertPassword": null,
+  "proxyURL": null,
+  "proxyPort": null,
+  "proxyUsername": null,
+  "proxyPassword": null,
+  "authTokenRefreshPeriod": "30"
+} 
