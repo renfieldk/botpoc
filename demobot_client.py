@@ -5,7 +5,7 @@ import datetime
 from lxml import html
 from html import escape
 import shlex
-from sqlite_stuff import exec_sql
+from sqlite_stuff import exec_sql,html_table
 import regex
 from time import time
 from requests_toolbelt.multipart.encoder import MultipartEncoder
@@ -45,13 +45,14 @@ class DemoBotClient(SymBotClient):
                 options[v] = options[k]
         logging.debug(options)
 
+        sid = im['stream']['streamId']
+        
         if any (k in options for k in ('die', 'kill', 'exit')):
             logging.debug('SEPPUKU')
             sys.exit(0)
 
         if 'help' in options:
             msg = escape(json.dumps(self.commands, indent=4))
-            sid = im['stream']['streamId']
             self.respond(sid, f'<pre>{msg}</pre>')
 
         if 'send' in options:
@@ -69,14 +70,10 @@ class DemoBotClient(SymBotClient):
 
             conf = ''
             if matches:
-                # these are symphony IDs
-                approvers = self.get_approvers()
+                # save message
+                self.save_message(im)
 
-                # tell approver
-                appr_str = super().get_stream_client().create_im(approvers)
-                if 'id' in appr_str:
-                    text = 'Please approve pending message.'
-                    self.respond(appr_str['id'], text)
+                self.send_to_approvers('Please approve pending message.')
 
                 conf = 'Message is pending approval before being sent.'
 
@@ -87,6 +84,24 @@ class DemoBotClient(SymBotClient):
             # confirmation to sender
             self.respond(im['stream']['streamId'], conf)
 
+        elif 'pending' in options:
+            logging.debug('pending')
+            user = self.getFromMsgAsDict(im, 'user')
+            if self.isUserApprover(user):
+                ls = self.get_pending_list()
+                self.respond(sid, ls)
+            else:
+                self.respond(sid, 'You are not an approver.')
+
+            
+    def send_to_approvers(self, msg):
+            # these are symphony IDs
+            approvers = self.get_approvers()
+            appr_ids = [user['id'] for user in approvers]
+            # tell approver
+            appr_str = super().get_stream_client().create_im(appr_ids)
+            if 'id' in appr_str:
+                self.respond(appr_str['id'], msg)
 
     # takes a streamID and plaintext message
     def respond(self, sid, msg):
@@ -104,24 +119,27 @@ class DemoBotClient(SymBotClient):
         if recipients:
             stream = super().get_stream_client().create_im(recipients)
         if 'id' in stream:
-                stream_id = stream['id']
-                msg = self.getPlainTextMsg(im)
+            stream_id = stream['id']
+            msg = self.getPlainTextMsg(im)
+            user = self.getFromMsgAsDict(im, 'user')
+            displayName = user['displayName']
+            msg = f'From: {displayName}<br /> {msg}'
 
-                paths = self.get_attachments_paths(im)
-                if paths:
-                    for file_name in paths:
-                        file_content = paths[file_name]
-                        url = '/agent/v4/stream/{0}/message/create'.format(stream_id)
-                        data = MultipartEncoder(
-                            fields={'message': f'<messageML>{msg}</messageML>',
-                            'attachment': (file_name, file_content, 'file')})
-                        headers = {
-                            'Content-Type': data.content_type
-                        }
-                        super().execute_rest_call("POST", url, data=data, headers=headers)
-                else:
-                    # no attachments
-                    self.respond(stream_id, msg)
+            paths = self.get_attachments_paths(im)
+            if paths:
+                for file_name in paths:
+                    file_content = paths[file_name]
+                    url = '/agent/v4/stream/{0}/message/create'.format(stream_id)
+                    data = MultipartEncoder(
+                        fields={'message': f'<messageML>{msg}</messageML>',
+                        'attachment': (file_name, file_content, 'file')})
+                    headers = {
+                        'Content-Type': data.content_type
+                    }
+                    super().execute_rest_call("POST", url, data=data, headers=headers)
+            else:
+                # no attachments
+                self.respond(stream_id, msg)
 
 
     # store attachments locally and return a dict of filenames -> paths
@@ -293,3 +311,78 @@ select approvers from approvers where active = 1
         logging.debug(f'users: {users}')
         return users
 
+    def save_message(self, im):
+        logging.debug('save_message')
+        options = { 'msg' : json.dumps(im),
+                    'messageId' : im['messageId'],
+                    'sender' : im['user']['email'],
+                    'senttime' : im['timestamp']}
+        options.update(self.db)
+        sql = '''\
+insert into messages ('messageId','msg', 'sender','senttime') values \
+(:messageId, :msg, :sender, :senttime)\
+'''
+        kwargs = {'options' : options, 'sql' : sql}
+        return exec_sql(kwargs)
+
+    def get_pending_list(self):
+        options = {}
+        options.update(self.db)
+        sql = '''\
+select * from messages where approved is null order by id DESC
+'''
+        kwargs = {'options' : options, 'sql' : sql}
+        res = exec_sql(kwargs)
+        modres = []
+        for r in res:
+            row = {}
+            for k in r.keys():
+                row[k] = r[k]
+            msg = self.getPlainTextMsg(json.loads(r['msg']))
+            row['msg'] = msg[:self.truncate] + '...'
+            row['messageId'] = r['messageId'][:self.truncate] + '...'
+            row['senttime'] = datetime.datetime.fromtimestamp(r['senttime']/1000.0)
+            modres.append(row)
+        return html_table(modres)
+
+
+    def isUserApprover(self, user):
+        if 'email' in user:
+            return self.isEmailApprover(user['email'])
+        elif 'emailAddress' in user:
+            return self.isEmailApprover(user['emailAddress'])
+        else:
+            return False
+
+
+    # checks if the email in the message is an approver
+    def isEmailApprover(self, email):
+        logging.debug('isEmailApprover')
+        approvers = self.get_approvers()
+        return email in [r['emailAddress'] for r in approvers]
+
+
+    def get_approvers(self):
+        logging.debug('get_approvers')
+        options = {}
+        options.update(self.db)
+        sql = '''\
+select approvers from approvers where active = 1
+'''
+        kwargs = {'options' : options, 'sql' : sql}
+        res = exec_sql(kwargs)
+        approvers = []
+        if res:
+            for r in res:
+                approvers.extend(r)
+        logging.debug(f'approvers: {approvers}')
+        users = self.getUsersFromEmails(approvers)
+        logging.debug(f'users: {users}')
+        return users['users']
+
+
+    def getUsersFromEmails(self, emails):
+        logging.debug('getUsersFromEmails')
+        res = super().get_user_client().get_users_from_email_list(emails)
+        logging.debug(f'res: {res}')
+        return res
