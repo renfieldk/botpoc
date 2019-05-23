@@ -7,11 +7,19 @@ from demobot_client import DemoBotClient
 
 def main():
     if 'DEBUG' in sys.argv:
-        logging.basicConfig(format='%(asctime)s %(message)s',
+        if 'FILE' in sys.argv:
+            logging.basicConfig(format='%(asctime)s %(message)s',
+                                level=logging.DEBUG,
+                                filename='./logs/botlog.log',
+                                filemode='w')
+        else:
+            logging.basicConfig(format='%(asctime)s %(message)s',
                             level=logging.DEBUG)
     else:
         logging.basicConfig(format='%(asctime)s %(message)s',
-                            level=logging.INFO)
+                            level=logging.INFO,
+                           filename='.logs/botlog.log',
+                           filemode='w')
 
     configure = SymConfig('./config.json')
     configure.load_rsa_config()

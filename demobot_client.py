@@ -46,16 +46,22 @@ class DemoBotClient(SymBotClient):
         logging.debug(options)
 
         sid = im['stream']['streamId']
-        
+
         if any (k in options for k in ('die', 'kill', 'exit')):
             logging.debug('SEPPUKU')
             sys.exit(0)
+
+        isApprover = False
+        user = self.getFromMsgAsDict(im, 'user')
+        if self.isUserApprover(user):
+            isApprover = True
+
 
         if 'help' in options:
             msg = escape(json.dumps(self.commands, indent=4))
             self.respond(sid, f'<pre>{msg}</pre>')
 
-        if 'send' in options:
+        elif 'send' in options:
             text = self.getPlainTextMsg(im)
             logging.debug(f'text: {text}')
 
@@ -86,14 +92,68 @@ class DemoBotClient(SymBotClient):
 
         elif 'pending' in options:
             logging.debug('pending')
-            user = self.getFromMsgAsDict(im, 'user')
-            if self.isUserApprover(user):
+            if isApprover:
                 ls = self.get_pending_list()
                 self.respond(sid, ls)
             else:
                 self.respond(sid, 'You are not an approver.')
 
-            
+        elif 'approve' in options:
+            logging.debug('approve')
+            if isApprover:
+                # record approval first
+                self.approve_message(options['approve'], user)
+                # retrieve message
+                ret_message = self.get_message(options['approve'])
+                # forward message
+                if (ret_message):
+                    self.forward_message(ret_message)
+                # tell approver it's sent
+                self.respond(sid, 'Message forwarded!')
+
+
+    def get_message(self, msg_no):
+        logging.debug('get_message')
+
+        if msg_no == True: # not specified
+            msg_no = -1
+
+        options = {'msg_no' : msg_no}
+        options.update(self.db)
+
+        sql = '''\
+select * from messages where id = :msg_no
+'''
+        kwargs = {'options' : options, 'sql' : sql}
+        res = exec_sql(kwargs)
+        if len(res) > 0:
+            msgDict = json.loads(res[0]['msg'])
+            logging.debug(f'got message: {msgDict}')
+            return msgDict
+        else:
+            return {}
+
+    def approve_message(self, msg_no, user):
+        logging.debug('approve_message')
+
+        if msg_no == True: # not specified
+            msg_no = -1
+
+        options = {'msg_no' : msg_no,
+                   'approver' : user['email']}
+        options.update(self.db)
+
+        sql = '''\
+update messages set  approver = :approver, \
+approved = datetime('now') \
+                where id = :msg_no\
+'''
+        kwargs = {'options' : options, 'sql' : sql}
+        res = exec_sql(kwargs)
+        logging.debug(f'results: {res}')
+        return res
+
+
     def send_to_approvers(self, msg):
             # these are symphony IDs
             approvers = self.get_approvers()
