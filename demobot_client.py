@@ -111,6 +111,18 @@ class DemoBotClient(SymBotClient):
                 # tell approver it's sent
                 self.respond(sid, 'Message forwarded!')
 
+        elif 'list' in options:
+            logging.debug('list')
+            list = self.get_my_messages(user['email'])
+            self.respond(sid, list)
+
+        elif 'view' in options:
+            logging.debug('view')
+            this_msg = self.get_message(options['view'])
+            plain_txt = self.getPlainTextMsg(this_msg)
+            self.forward_msg_to_stream(this_msg, sid)
+            #self.respond(sid, plain_txt)
+
 
     def get_message(self, msg_no):
         logging.debug('get_message')
@@ -179,27 +191,30 @@ approved = datetime('now') \
         if recipients:
             stream = super().get_stream_client().create_im(recipients)
         if 'id' in stream:
-            stream_id = stream['id']
-            msg = self.getPlainTextMsg(im)
-            user = self.getFromMsgAsDict(im, 'user')
-            displayName = user['displayName']
-            msg = f'From: {displayName}<br /> {msg}'
+            self.forward_msg_to_stream(im, stream['id'])
 
-            paths = self.get_attachments_paths(im)
-            if paths:
-                for file_name in paths:
-                    file_content = paths[file_name]
-                    url = '/agent/v4/stream/{0}/message/create'.format(stream_id)
-                    data = MultipartEncoder(
-                        fields={'message': f'<messageML>{msg}</messageML>',
-                        'attachment': (file_name, file_content, 'file')})
-                    headers = {
-                        'Content-Type': data.content_type
+
+    def forward_msg_to_stream(self, im, stream_id):
+        msg = self.getPlainTextMsg(im)
+        user = self.getFromMsgAsDict(im, 'user')
+        displayName = user['displayName']
+        msg = f'From: {displayName}<br /> {msg}'
+
+        paths = self.get_attachments_paths(im)
+        if paths:
+            for file_name in paths:
+                file_content = paths[file_name]
+                url = '/agent/v4/stream/{0}/message/create'.format(stream_id)
+                data = MultipartEncoder(
+                     fields={'message': f'<messageML>{msg}</messageML>',
+                     'attachment': (file_name, file_content, 'file')})
+                headers = {
+                     'Content-Type': data.content_type
                     }
-                    super().execute_rest_call("POST", url, data=data, headers=headers)
-            else:
-                # no attachments
-                self.respond(stream_id, msg)
+            super().execute_rest_call("POST", url, data=data, headers=headers)
+        else:
+            # no attachments
+            self.respond(stream_id, msg)
 
 
     # store attachments locally and return a dict of filenames -> paths
@@ -390,6 +405,27 @@ insert into messages ('messageId','msg', 'sender','senttime') values \
         options.update(self.db)
         sql = '''\
 select * from messages where approved is null order by id DESC
+'''
+        kwargs = {'options' : options, 'sql' : sql}
+        res = exec_sql(kwargs)
+        modres = []
+        for r in res:
+            row = {}
+            for k in r.keys():
+                row[k] = r[k]
+            msg = self.getPlainTextMsg(json.loads(r['msg']))
+            row['msg'] = msg[:self.truncate] + '...'
+            row['messageId'] = r['messageId'][:self.truncate] + '...'
+            row['senttime'] = datetime.datetime.fromtimestamp(r['senttime']/1000.0)
+            modres.append(row)
+        return html_table(modres)
+
+    def get_my_messages(self, sender):
+        options = {'sender' : sender,
+                   'count' : 20}
+        options.update(self.db)
+        sql = '''\
+select * from messages where sender = :sender order by id DESC limit :count
 '''
         kwargs = {'options' : options, 'sql' : sql}
         res = exec_sql(kwargs)
