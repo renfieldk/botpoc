@@ -58,8 +58,10 @@ class DemoBotClient(SymBotClient):
 
 
         if 'help' in options:
-            msg = escape(json.dumps(self.commands, indent=4))
-            self.respond(sid, f'<pre>{msg}</pre>')
+#            msg = escape(json.dumps(self.commands, indent=4))
+#            self.respond(sid, f'<pre>{msg}</pre>')
+            html = html_table([self.commands,])
+            self.respond(sid, html)
 
         elif 'send' in options:
             text = self.getPlainTextMsg(im)
@@ -123,6 +125,22 @@ class DemoBotClient(SymBotClient):
             self.forward_msg_to_stream(this_msg, sid)
             #self.respond(sid, plain_txt)
 
+        elif 'keywords' in options:
+            logging.debug('keywords')
+            html = html_table(self.get_keywords())
+            self.respond(sid, html)
+
+        elif 'keyadd' in options:
+            logging.debug('add keyword')
+            self.add_keyword(options['keyadd'])
+            html = html_table(self.get_keywords())
+            self.respond(sid, html)
+
+        elif 'keydelete' in options:
+            logging.debug('delete keyword')
+            self.delete_keyword(options['keydelete'])
+            html = html_table(self.get_keywords())
+            self.respond(sid, html)
 
     def get_message(self, msg_no):
         logging.debug('get_message')
@@ -481,4 +499,53 @@ select approvers from approvers where active = 1
         logging.debug('getUsersFromEmails')
         res = super().get_user_client().get_users_from_email_list(emails)
         logging.debug(f'res: {res}')
+        return res
+
+    def get_keywords(self, active=1):
+        logging.debug('get_keywords')
+        options = {'active' : active}
+        options.update(self.db)
+        sql = '''\
+select keyword from keywords\
+'''
+        if active == 1:
+            sql = sql + ' where active = 1'
+
+        kwargs = {'options' : options, 'sql' : sql}
+        res = exec_sql(kwargs)
+        logging.debug(f'keywords:{res}')
+        return res
+
+
+    def delete_keyword(self, kw):
+        logging.debug('delete keyword')
+        options = {}
+        options.update(self.db)
+        options['keyword'] = kw
+        options['active'] = 0
+        sql = '''\
+update keywords set active = :active where keyword = :keyword\
+'''
+        kwargs = {'options' : options, 'sql' : sql}
+        res = exec_sql(kwargs)
+        return res
+
+
+    def add_keyword(self, addme):
+        kw = self.get_keywords(0) #gets ALL including inactive
+        options = {}
+        options.update(self.db)
+        options['keyword'] = addme
+        options['active'] = 1
+        sql = ''
+        if addme not in kw:
+            sql = '''\
+insert into keywords ('keyword', 'active') values (:keyword, :active)\
+'''
+        else:
+            sql = '''\
+update keywords set active = :active where keyword = :keyword\
+'''
+        kwargs = {'options' : options, 'sql' : sql}
+        res = exec_sql(kwargs)
         return res
