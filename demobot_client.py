@@ -81,7 +81,7 @@ class DemoBotClient(SymBotClient):
                 # save message
                 self.save_message(im)
 
-                self.send_to_approvers('Please approve pending message.')
+                self.send_to_approvers('Please approve <hash tag="pending" /> message.')
 
                 conf = 'Message is pending approval before being sent.'
 
@@ -188,7 +188,11 @@ approved = datetime('now') \
             # these are symphony IDs
             approvers = self.get_approvers()
             appr_ids = [user['id'] for user in approvers]
-            # tell approver
+            emails = [user['emailAddress'] for user in approvers]
+            recs = ', '.join([f'<mention email="{e}" />' for e in emails])
+            msg = f'{recs}<br />{msg}'
+
+            # tell approvers
             appr_str = super().get_stream_client().create_im(appr_ids)
             if 'id' in appr_str:
                 self.respond(appr_str['id'], msg)
@@ -213,10 +217,15 @@ approved = datetime('now') \
 
 
     def forward_msg_to_stream(self, im, stream_id):
-        msg = self.getPlainTextMsg(im)
+        plain = self.getPlainTextMsg(im)
         user = self.getFromMsgAsDict(im, 'user')
         displayName = user['displayName']
-        msg = f'From: {displayName}<br /> {msg}'
+        msg = f'From: {displayName}<br />'
+        userIds = self.getMentionedUserIds(im)
+        emails = self.getEmailsFromUserIds(userIds)
+        for e in emails:
+            msg = f'{msg}To:<mention email=\"{e}\" /><br />'
+        msg = f'{msg}{plain}'
 
         paths = self.get_attachments_paths(im)
         if paths:
@@ -292,6 +301,7 @@ approved = datetime('now') \
 
     # strip all the HTML etc out of the message
     def getPlainTextMsg(self, im):
+        logging.debug('getPlainTextMsg')
         txt = ''
         try:
             root = html.fromstring(im['message'])
