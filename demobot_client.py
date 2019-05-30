@@ -127,20 +127,29 @@ class DemoBotClient(SymBotClient):
 
         elif 'keywords' in options:
             logging.debug('keywords')
-            html = html_table(self.get_keywords())
-            self.respond(sid, html)
+            if isApprover:
+                html = html_table(self.get_keywords())
+                self.respond(sid, html)
+            else:
+                self.respond(sid, "You are not authorized.")
 
         elif 'keyadd' in options:
             logging.debug('add keyword')
-            self.add_keyword(options['keyadd'])
-            html = html_table(self.get_keywords())
-            self.respond(sid, html)
+            if isApprover:
+                self.add_keyword(options['keyadd'])
+                html = html_table(self.get_keywords())
+                self.respond(sid, html)
+            else:
+                self.respond(sid, "You are not authorized.")
 
         elif 'keydelete' in options:
             logging.debug('delete keyword')
-            self.delete_keyword(options['keydelete'])
-            html = html_table(self.get_keywords())
-            self.respond(sid, html)
+            if isApprover:
+                self.delete_keyword(options['keydelete'])
+                html = html_table(self.get_keywords())
+                self.respond(sid, html)
+            else:
+                self.respond(sid, "You are not authorized.")
 
     def get_message(self, msg_no):
         logging.debug('get_message')
